@@ -1,158 +1,66 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
 import os
-import socket
-import subprocess
 import threading
-import time
-from tkinter import *
-from tkinter import filedialog
-from tkinter import messagebox
+import socket
 
-class App:
-    def __init__(self, master):
-        self.my_variable = 0
-        self.master = master
-        self.master.title("PS4 Server Tool")
+class Ps4Payload:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("PS4 Payload Injector")
+        self.payload_path = tk.StringVar()
+        self.destination_ip = tk.StringVar()
+        
+        self.create_widgets()
 
-        # IP address and DNS entries
-        self.ip_var = StringVar()
-        self.dns1_var = StringVar()
-        self.dns2_var = StringVar()
-        self.ip_label = Label(master, text="IP address:")
-        self.ip_label.grid(row=0, column=0, sticky=W)
-        self.ip_entry = Entry(master, textvariable=self.ip_var)
-        self.ip_entry.grid(row=0, column=1)
-        self.dns1_label = Label(master, text="DNS 1:")
-        self.dns1_label.grid(row=1, column=0, sticky=W)
-        self.dns1_entry = Entry(master, textvariable=self.dns1_var)
-        self.dns1_entry.grid(row=1, column=1)
-        self.dns2_label = Label(master, text="DNS 2:")
-        self.dns2_label.grid(row=2, column=0, sticky=W)
-        self.dns2_entry = Entry(master, textvariable=self.dns2_var)
-        self.dns2_entry.grid(row=2, column=1)
+    def create_widgets(self):
+        tk.Label(self.root, text="Payload Path:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        tk.Entry(self.root, textvariable=self.payload_path, width=50).grid(row=0, column=1, padx=10, pady=10)
+        tk.Button(self.root, text="Browse", command=self.browse_payload).grid(row=0, column=2, padx=10, pady=10)
 
-        # File selection
-        self.bin_path = StringVar()
-        self.file_label = Label(master, text="Select .bin file:")
-        self.file_label.grid(row=3, column=0, sticky=W)
-        self.file_entry = Entry(master, textvariable=self.bin_path)
-        self.file_entry.grid(row=3, column=1)
-        self.browse_button = Button(master, text="Browse", command=self.select_file)
-        self.browse_button.grid(row=3, column=2)
+        tk.Label(self.root, text="Destination IP:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        tk.Entry(self.root, textvariable=self.destination_ip, width=50).grid(row=1, column=1, padx=10, pady=10)
 
-        # Timer display
-        self.timer_var = StringVar()
-        self.timer_label = Label(master, textvariable=self.timer_var)
-        self.timer_label.grid(row=4, column=1)
+        tk.Button(self.root, text="Send Payload", command=self.send_payload).grid(row=2, column=0, columnspan=3, pady=20)
 
-        # Start button
-        self.start_button = Button(master, text="Start", command=self.start_server)
-        self.start_button.grid(row=5, column=0)
+    def browse_payload(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Payload Files", "*.bin")])
+        if file_path:
+            self.payload_path.set(file_path)
 
-        # Stop button
-        self.stop_button = Button(master, text="Stop", command=self.stop_server, state=DISABLED)
-        self.stop_button.grid(row=5, column=1)
+    def send_payload(self):
+        payload = self.payload_path.get()
+        ip = self.destination_ip.get()
 
-        # Exit button
-        self.exit_button = Button(master, text="Exit", command=self.exit_program)
-        self.exit_button.grid(row=5, column=2)
+        if not payload:
+            messagebox.showerror("Error", "Please select a payload file.")
+            return
 
-        # Server thread and timer
-        self.server_thread = None
-        self.running = False
-        self.start_time = None
-        self.elapsed_time = 0
-        self.timer_running = False
-        self.update_timer()
+        if not ip:
+            messagebox.showerror("Error", "Please enter the destination IP.")
+            return
 
-    def select_file(self):
-        file_path = filedialog.askopenfilename()
-        self.bin_path.set(file_path)
+        threading.Thread(target=self.transfer_payload, args=(payload, ip)).start()
 
-    def start_server(self):
-     self.my_variable = 0
-    global start_time
-    if not self.running:
-        # Parse IP address and DNS entries
-        ip = self.ip_var.get()
-        dns1 = self.dns1_var.get()
-        dns2 = self.dns2_var.get()
-        if not ip or not dns1 or not dns2:
-            messagebox.showerror("Error", "Please enter IP address and DNS entries")
+    def transfer_payload(self, payload, ip):
+        try:
+            with open(payload, "rb") as payload_file:
+                payload_data = payload_file.read()
             
-        # Parse .bin file path
-        bin_path = self.bin_path.get()
-        if not os.path.isfile(bin_path):
-            messagebox.showerror("Error", "Please select a valid .bin file")
-           
+            payload_size = len(payload_data)
+            payload_size_bytes = payload_size.to_bytes(4, byteorder='big')
 
-        # Start server thread
-        self.server_thread = threading.Thread(target=self.run_server, args=(ip, dns1, dns2, bin_path))
-        self.server_thread.start()
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((ip, 9999))
+                s.sendall(payload_size_bytes + payload_data)
 
-        # Start timer thread
-        self.timer_thread = threading.Thread(target=self.run_timer)
-        self.timer_thread.start()
+                response = s.recv(1024)
+                print(response.decode())
+                messagebox.showinfo("Success", f"Payload {os.path.basename(payload)} sent to {ip}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to send payload: {e}")
 
-def run_server(self, ip, dns1, dns2, bin_path):
-    # Generate IP address
-    ip_address = ip
-
-    # Generate DNS entries
-    dns_entries = [dns1, dns2]
-
-    # Start server
-    cmd = ["python", "-m", "http.server", "80", "--bind", ip_address]
-    subprocess.Popen(cmd, cwd=bin_path)
-
-    # Force installation of the .bin file
-    # Code for forcing installation of the .bin file goes here
-
-
-    def start_server(self):
-    # Generate IP address
-     ip_address = "192.168.1.1"
-
-    # Generate DNS entries
-    dns1 = "ps4payload.local"
-    dns2 = "ps4exploit.local"
-
-    # Start server
-    # Code for starting the server goes here
-
-    def run_timer(self):
-        global start_time
-    # Initialize timer variables
-    start_time = time.time()
-    elapsed_time = 0
-
-    while self.timer_running:
-        # Calculate elapsed time
-        elapsed_time = time.time() - start_time
-
-        # Format elapsed time as a string
-        elapsed_time_str = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
-
-        # Update timer display
-        self.timer_label.config(text=elapsed_time_str)
-
-        # Wait for one second before updating timer again
-        time.sleep(1)
-
-    def stop(self):
-    # Set timer running flag to false
-     self.timer_running = False
-
-    # Stop server
-    # Code for stopping the server goes here
-
-    def quit(self):
-    # Stop server
-     self.stop()
-
-    # Exit application
-    self.root.destroy()
-# the GUI
-    gui = GUI()
-
-#Run the GUI
-    gui.root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = Ps4Payload(root)
+    root.mainloop()
